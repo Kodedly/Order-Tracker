@@ -10,3 +10,4 @@ frontend/dist/
 
 # Environment variables
 .env
+backend/test.db
