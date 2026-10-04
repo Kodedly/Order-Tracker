@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_URL } from './config'
 
 function ProductsPage() {
   const [products, setProducts] = useState([])
@@ -18,8 +19,8 @@ function ProductsPage() {
 
   function fetchAll() {
     Promise.all([
-      fetch('http://127.0.0.1:8000/products').then((res) => res.json()),
-      fetch('http://127.0.0.1:8000/categories').then((res) => res.json()),
+      fetch(`${API_URL}/products`).then((res) => res.json()),
+      fetch(`${API_URL}/categories`).then((res) => res.json()),
     ])
       .then(([productsData, categoriesData]) => {
         setProducts(productsData)
@@ -41,7 +42,7 @@ function ProductsPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch('http://127.0.0.1:8000/products', {
+    fetch(`${API_URL}/products`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -73,7 +74,7 @@ function ProductsPage() {
     e.preventDefault()
     setCategoryError(null)
 
-    fetch('http://127.0.0.1:8000/categories', {
+    fetch(`${API_URL}/categories`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newCategoryName }),
@@ -93,7 +94,7 @@ function ProductsPage() {
   }
 
   function handleDeleteCategory(id) {
-    fetch(`http://127.0.0.1:8000/categories/${id}`, { method: 'DELETE' })
+    fetch(`${API_URL}/categories/${id}`, { method: 'DELETE' })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to delete category (it may have products in it)')
         return res.json()
@@ -242,9 +243,9 @@ function OrdersPage() {
 
   function fetchAll() {
     Promise.all([
-      fetch('http://127.0.0.1:8000/orders').then((res) => res.json()),
-      fetch('http://127.0.0.1:8000/customers').then((res) => res.json()),
-      fetch('http://127.0.0.1:8000/products').then((res) => res.json()),
+      fetch(`${API_URL}/orders`).then((res) => res.json()),
+      fetch(`${API_URL}/customers`).then((res) => res.json()),
+      fetch(`${API_URL}/products`).then((res) => res.json()),
     ])
       .then(([ordersData, customersData, productsData]) => {
         setOrders(ordersData)
@@ -281,7 +282,7 @@ function OrdersPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch('http://127.0.0.1:8000/orders', {
+    fetch(`${API_URL}/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -309,7 +310,7 @@ function OrdersPage() {
   }
 
   function handleCancel(orderId) {
-    fetch(`http://127.0.0.1:8000/orders/${orderId}/cancel`, { method: 'PUT' })
+    fetch(`${API_URL}/orders/${orderId}/cancel`, { method: 'PUT' })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to cancel order')
         return res.json()
@@ -471,7 +472,7 @@ function CustomersPage() {
   const [submitting, setSubmitting] = useState(false)
 
   function fetchCustomers() {
-    fetch('http://127.0.0.1:8000/customers')
+    fetch(`${API_URL}/customers`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch customers')
         return res.json()
@@ -495,7 +496,7 @@ function CustomersPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch('http://127.0.0.1:8000/customers', {
+    fetch(`${API_URL}/customers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -594,7 +595,7 @@ function DashboardPage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/dashboard')
+    fetch(`${API_URL}/dashboard`)
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch dashboard')
         return res.json()
