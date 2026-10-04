@@ -11,7 +11,11 @@ app = FastAPI(title="Order Tracker API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TEMPORARY - we'll restrict this once we have the real frontend URL
+    allow_origins=[
+        "https://order-tracker-eight-rouge.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
