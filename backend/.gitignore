@@ -1,13 +1,6 @@
-# Python
-backend/venv/
-backend/__pycache__/
-backend/*.db
-backend/.pytest_cache/
-
-# Node
-frontend/node_modules/
-frontend/dist/
-
-# Environment variables
+venv/
+__pycache__/
+*.pyc
+*.db
+.pytest_cache/
 .env
-backend/test.db
