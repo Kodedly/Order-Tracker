@@ -25,6 +25,7 @@ class ProductCreate(ProductBase):
 
 class ProductOut(ProductBase):
     id: int
+    category_id: int | None = None  # tolerate products whose category was removed
 
     class Config:
         from_attributes = True
@@ -74,3 +75,18 @@ class OrderOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str

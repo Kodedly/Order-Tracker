@@ -24,13 +24,20 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
+anon_client = TestClient(app)  # never logs in, used to test that routes are locked
 
 
 @pytest.fixture(autouse=True)
 def setup_and_teardown():
-    Base.metadata.create_all(bind=engine)   # build fresh tables before each test
+    Base.metadata.create_all(bind=engine)
+    client.post("/register", json={"username": "tester", "password": "testpass123"})
+    token = client.post(
+        "/login", data={"username": "tester", "password": "testpass123"}
+    ).json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
     yield
-    Base.metadata.drop_all(bind=engine)     # wipe them after each test
+    Base.metadata.drop_all(bind=engine)
+
 
 def test_create_category():
     response = client.post("/categories", json={"name": "Drinks"})
@@ -125,3 +132,23 @@ def test_cannot_cancel_twice():
     client.put(f"/orders/{order['id']}/cancel")
     second_cancel = client.put(f"/orders/{order['id']}/cancel")
     assert second_cancel.status_code == 400
+
+
+def test_protected_route_requires_login():
+    response = anon_client.post("/categories", json={"name": "Drinks"})
+    assert response.status_code == 401
+
+
+def test_cannot_delete_category_with_products():
+    category = client.post("/categories", json={"name": "Drinks"}).json()
+    client.post("/products", json={
+        "name": "Fura", "price": 500, "stock": 20, "category_id": category["id"]
+    })
+    response = client.delete(f"/categories/{category['id']}")
+    assert response.status_code == 400
+
+def test_registration_closed_after_first_user():
+    response = anon_client.post(
+        "/register", json={"username": "intruder", "password": "whatever123"}
+    )
+    assert response.status_code == 403

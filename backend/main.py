@@ -1,6 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+from auth import hash_password, verify_password, create_access_token, get_current_user
 from database import engine, Base, get_db
 import models
 import schemas
@@ -20,15 +26,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Any route that lists this in `dependencies` requires a valid login token
+auth_required = [Depends(get_current_user)]
+
 
 @app.get("/")
 def root():
     return {"message": "Order Tracker API is running"}
 
 
+# ---- Auth ----
+
+@app.post("/register", response_model=schemas.UserOut)
+def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Only the very first account can be created; after that, registration is closed
+    if db.query(models.User).first():
+        raise HTTPException(status_code=403, detail="Registration is closed")
+
+    new_user = models.User(
+        username=user.username,
+        hashed_password=hash_password(user.password),
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+@app.post("/login", response_model=schemas.Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    db_user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    if not db_user or not verify_password(form_data.password, db_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+
+    token = create_access_token({"sub": db_user.username})
+    return {"access_token": token, "token_type": "bearer"}
+
+
 # ---- Categories ----
 
-@app.post("/categories", response_model=schemas.CategoryOut)
+@app.post("/categories", response_model=schemas.CategoryOut, dependencies=auth_required)
 def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
     existing = db.query(models.Category).filter(models.Category.name == category.name).first()
     if existing:
@@ -41,12 +78,12 @@ def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_
     return db_category
 
 
-@app.get("/categories", response_model=list[schemas.CategoryOut])
+@app.get("/categories", response_model=list[schemas.CategoryOut], dependencies=auth_required)
 def list_categories(db: Session = Depends(get_db)):
     return db.query(models.Category).all()
 
 
-@app.put("/categories/{category_id}", response_model=schemas.CategoryOut)
+@app.put("/categories/{category_id}", response_model=schemas.CategoryOut, dependencies=auth_required)
 def update_category(category_id: int, updated: schemas.CategoryCreate, db: Session = Depends(get_db)):
     category = db.query(models.Category).filter(models.Category.id == category_id).first()
     if not category:
@@ -58,11 +95,19 @@ def update_category(category_id: int, updated: schemas.CategoryCreate, db: Sessi
     return category
 
 
-@app.delete("/categories/{category_id}")
+@app.delete("/categories/{category_id}", dependencies=auth_required)
 def delete_category(category_id: int, db: Session = Depends(get_db)):
     category = db.query(models.Category).filter(models.Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
+
+    has_products = db.query(models.Product).filter(models.Product.category_id == category_id).first()
+    if has_products:
+        raise HTTPException(
+            status_code=400,
+            detail="Category still has products. Move or delete them first.",
+        )
+
     db.delete(category)
     db.commit()
     return {"message": f"Category {category_id} deleted"}
@@ -70,7 +115,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
 
 # ---- Products ----
 
-@app.post("/products", response_model=schemas.ProductOut)
+@app.post("/products", response_model=schemas.ProductOut, dependencies=auth_required)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     category = db.query(models.Category).filter(models.Category.id == product.category_id).first()
     if not category:
@@ -83,12 +128,12 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     return db_product
 
 
-@app.get("/products", response_model=list[schemas.ProductOut])
+@app.get("/products", response_model=list[schemas.ProductOut], dependencies=auth_required)
 def list_products(db: Session = Depends(get_db)):
     return db.query(models.Product).all()
 
 
-@app.get("/products/{product_id}", response_model=schemas.ProductOut)
+@app.get("/products/{product_id}", response_model=schemas.ProductOut, dependencies=auth_required)
 def get_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -96,7 +141,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-@app.put("/products/{product_id}", response_model=schemas.ProductOut)
+@app.put("/products/{product_id}", response_model=schemas.ProductOut, dependencies=auth_required)
 def update_product(product_id: int, updated: schemas.ProductCreate, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -112,7 +157,7 @@ def update_product(product_id: int, updated: schemas.ProductCreate, db: Session 
     return product
 
 
-@app.delete("/products/{product_id}")
+@app.delete("/products/{product_id}", dependencies=auth_required)
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -124,7 +169,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 
 # ---- Customers ----
 
-@app.post("/customers", response_model=schemas.CustomerOut)
+@app.post("/customers", response_model=schemas.CustomerOut, dependencies=auth_required)
 def create_customer(customer: schemas.CustomerCreate, db: Session = Depends(get_db)):
     db_customer = models.Customer(**customer.model_dump())
     db.add(db_customer)
@@ -133,14 +178,14 @@ def create_customer(customer: schemas.CustomerCreate, db: Session = Depends(get_
     return db_customer
 
 
-@app.get("/customers", response_model=list[schemas.CustomerOut])
+@app.get("/customers", response_model=list[schemas.CustomerOut], dependencies=auth_required)
 def list_customers(db: Session = Depends(get_db)):
     return db.query(models.Customer).all()
 
 
 # ---- Orders ----
 
-@app.post("/orders", response_model=schemas.OrderOut)
+@app.post("/orders", response_model=schemas.OrderOut, dependencies=auth_required)
 def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     customer = db.query(models.Customer).filter(models.Customer.id == order.customer_id).first()
     if not customer:
@@ -183,12 +228,12 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     return db_order
 
 
-@app.get("/orders", response_model=list[schemas.OrderOut])
+@app.get("/orders", response_model=list[schemas.OrderOut], dependencies=auth_required)
 def list_orders(db: Session = Depends(get_db)):
     return db.query(models.Order).all()
 
 
-@app.get("/orders/{order_id}", response_model=schemas.OrderOut)
+@app.get("/orders/{order_id}", response_model=schemas.OrderOut, dependencies=auth_required)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
@@ -196,7 +241,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
     return order
 
 
-@app.put("/orders/{order_id}/cancel", response_model=schemas.OrderOut)
+@app.put("/orders/{order_id}/cancel", response_model=schemas.OrderOut, dependencies=auth_required)
 def cancel_order(order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
@@ -218,7 +263,7 @@ def cancel_order(order_id: int, db: Session = Depends(get_db)):
     return order
 
 
-@app.put("/orders/{order_id}/status", response_model=schemas.OrderOut)
+@app.put("/orders/{order_id}/status", response_model=schemas.OrderOut, dependencies=auth_required)
 def update_order_status(order_id: int, status: str, db: Session = Depends(get_db)):
     valid_statuses = ["pending", "paid", "delivered"]
     if status not in valid_statuses:
@@ -235,15 +280,13 @@ def update_order_status(order_id: int, status: str, db: Session = Depends(get_db
     db.refresh(order)
     return order
 
-from datetime import datetime, timezone
-from sqlalchemy import func
 
+# ---- Dashboard ----
 
-@app.get("/dashboard")
+@app.get("/dashboard", dependencies=auth_required)
 def get_dashboard(db: Session = Depends(get_db)):
     today = datetime.now(timezone.utc).date()
 
-    # Today's sales: sum of totals for non-cancelled orders created today
     todays_orders = (
         db.query(models.Order)
         .filter(func.date(models.Order.created_at) == today)
@@ -253,7 +296,6 @@ def get_dashboard(db: Session = Depends(get_db)):
     todays_sales = sum(order.total for order in todays_orders)
     todays_order_count = len(todays_orders)
 
-    # Low stock: products with stock below threshold
     LOW_STOCK_THRESHOLD = 5
     low_stock_products = (
         db.query(models.Product)
@@ -261,7 +303,6 @@ def get_dashboard(db: Session = Depends(get_db)):
         .all()
     )
 
-    # Top-selling products: group order items by product, sum quantity
     top_products_query = (
         db.query(
             models.Product.id,

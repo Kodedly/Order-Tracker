@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react'
 import { API_URL } from './config'
+import { apiFetch, getToken, setToken, clearToken } from './api'
+
+// Fetches JSON from the API and throws a readable error if the request fails
+function getJson(path, errorMessage) {
+  return apiFetch(path).then((res) => {
+    if (!res.ok) throw new Error(errorMessage)
+    return res.json()
+  })
+}
 
 function ProductsPage() {
   const [products, setProducts] = useState([])
@@ -19,8 +28,8 @@ function ProductsPage() {
 
   function fetchAll() {
     Promise.all([
-      fetch(`${API_URL}/products`).then((res) => res.json()),
-      fetch(`${API_URL}/categories`).then((res) => res.json()),
+      getJson('/products', 'Failed to fetch products'),
+      getJson('/categories', 'Failed to fetch categories'),
     ])
       .then(([productsData, categoriesData]) => {
         setProducts(productsData)
@@ -42,7 +51,7 @@ function ProductsPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch(`${API_URL}/products`, {
+    apiFetch('/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -74,7 +83,7 @@ function ProductsPage() {
     e.preventDefault()
     setCategoryError(null)
 
-    fetch(`${API_URL}/categories`, {
+    apiFetch('/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newCategoryName }),
@@ -93,10 +102,13 @@ function ProductsPage() {
       .catch((err) => setCategoryError(err.message))
   }
 
-  function handleDeleteCategory(id) {
-    fetch(`${API_URL}/categories/${id}`, { method: 'DELETE' })
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to delete category (it may have products in it)')
+    function handleDeleteCategory(id) {
+    apiFetch(`/categories/${id}`, { method: 'DELETE' })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.detail || 'Failed to delete category')
+        }
         return res.json()
       })
       .then(() => fetchAll())
@@ -104,6 +116,7 @@ function ProductsPage() {
   }
 
   function categoryName(id) {
+    if (id === null || id === undefined) return 'Uncategorized'
     const category = categories.find((c) => c.id === id)
     return category ? category.name : `Category ${id}`
   }
@@ -243,9 +256,9 @@ function OrdersPage() {
 
   function fetchAll() {
     Promise.all([
-      fetch(`${API_URL}/orders`).then((res) => res.json()),
-      fetch(`${API_URL}/customers`).then((res) => res.json()),
-      fetch(`${API_URL}/products`).then((res) => res.json()),
+      getJson('/orders', 'Failed to fetch orders'),
+      getJson('/customers', 'Failed to fetch customers'),
+      getJson('/products', 'Failed to fetch products'),
     ])
       .then(([ordersData, customersData, productsData]) => {
         setOrders(ordersData)
@@ -282,7 +295,7 @@ function OrdersPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch(`${API_URL}/orders`, {
+    apiFetch('/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -310,7 +323,7 @@ function OrdersPage() {
   }
 
   function handleCancel(orderId) {
-    fetch(`${API_URL}/orders/${orderId}/cancel`, { method: 'PUT' })
+    apiFetch(`/orders/${orderId}/cancel`, { method: 'PUT' })
       .then((res) => {
         if (!res.ok) throw new Error('Failed to cancel order')
         return res.json()
@@ -472,11 +485,7 @@ function CustomersPage() {
   const [submitting, setSubmitting] = useState(false)
 
   function fetchCustomers() {
-    fetch(`${API_URL}/customers`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch customers')
-        return res.json()
-      })
+    getJson('/customers', 'Failed to fetch customers')
       .then((data) => {
         setCustomers(data)
         setLoading(false)
@@ -496,7 +505,7 @@ function CustomersPage() {
     setFormError(null)
     setSubmitting(true)
 
-    fetch(`${API_URL}/customers`, {
+    apiFetch('/customers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -595,11 +604,7 @@ function DashboardPage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetch(`${API_URL}/dashboard`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch dashboard')
-        return res.json()
-      })
+    getJson('/dashboard', 'Failed to fetch dashboard')
       .then((data) => {
         setData(data)
         setLoading(false)
@@ -671,8 +676,102 @@ function DashboardPage() {
   )
 }
 
+function LoginPage({ onLogin }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
+
+    // /login expects form data (not JSON), so we use URLSearchParams
+    const body = new URLSearchParams()
+    body.append('username', username)
+    body.append('password', password)
+
+    // Plain fetch on purpose: there is no token yet at login
+    fetch(`${API_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.detail || 'Login failed')
+        }
+        return res.json()
+      })
+      .then((data) => {
+        setToken(data.access_token)
+        onLogin()
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSubmitting(false))
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-full max-w-sm space-y-4"
+      >
+        <h1 className="text-2xl font-bold text-white">Order Tracker</h1>
+        <p className="text-slate-400 text-sm">Sign in to continue</p>
+
+        <input
+          type="text"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white"
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white"
+        />
+
+        {error && <p className="text-red-400 text-sm">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-medium rounded px-4 py-2"
+        >
+          {submitting ? 'Signing in...' : 'Sign In'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
 function App() {
+  const [loggedIn, setLoggedIn] = useState(!!getToken())
   const [activeTab, setActiveTab] = useState('dashboard')
+
+  // If any request comes back 401, apiFetch fires this event and we show the login page
+  useEffect(() => {
+    const handleExpired = () => setLoggedIn(false)
+    window.addEventListener('auth-expired', handleExpired)
+    return () => window.removeEventListener('auth-expired', handleExpired)
+  }, [])
+
+  function handleLogout() {
+    clearToken()
+    setLoggedIn(false)
+  }
+
+  if (!loggedIn) {
+    return <LoginPage onLogin={() => setLoggedIn(true)} />
+  }
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard' },
@@ -684,7 +783,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="max-w-4xl mx-auto px-8 py-8">
-        <nav className="flex gap-2 mb-8 border-b border-slate-700">
+        <nav className="flex gap-2 mb-8 border-b border-slate-700 items-center">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -698,6 +797,12 @@ function App() {
               {tab.label}
             </button>
           ))}
+          <button
+            onClick={handleLogout}
+            className="ml-auto text-sm text-slate-400 hover:text-red-400 px-3 py-2"
+          >
+            Log out
+          </button>
         </nav>
 
         {activeTab === 'dashboard' && <DashboardPage />}
